@@ -12,15 +12,25 @@
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_tsensor.h"
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_gyro.h"
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_psensor.h"
+#include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_hsensor.h"
+
+
 
 #include "stdio.h"
+#include "stdbool.h"
 
 extern void initialise_monitor_handles(void);	// for semi-hosting support (printf)
 
 static void MX_GPIO_Init(void);
 void SystemClock_Config(void);
+static void UART1_Init(void);
+UART_HandleTypeDef huart1;
 
-HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+
+volatile bool singleClick = false;
+volatile bool doubleClick = false;
+
+HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) // single/doubleclick handler
 {
 	static int time=-500;
 	int gap = 0;
@@ -28,12 +38,14 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	{
 		gap=-(time-HAL_GetTick());
 		time=HAL_GetTick();
-
 		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
 		printf("Single Click. \n");
 		printf("Gap:%d,time:%d\n",gap,time);
+		singleClick = true;
 		if (gap<5){
 			printf("\t Double Click\n");
+			singleClick = false;
+			doubleClick = true;
 			time=-500;
 		}
 
@@ -48,6 +60,7 @@ int main(void)
 
 	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
 	HAL_Init();
+	MX_GPIO_Init();
 
 	/* Peripheral initializations using BSP functions */
 	BSP_ACCELERO_Init();
@@ -60,7 +73,33 @@ int main(void)
 
 	BSP_PSENSOR_Init();
 
-	MX_GPIO_Init();
+	BSP_HSENSOR_Init();
+
+	UART1_Init();
+
+	HAL_InitTick(2);//not to sure what the pirority to put this.
+
+	HAL_SetTickFreq(100);//i think....
+
+	static bool warning = false;
+	static int mode = 0;//0:stationary, 1:Launch,2:return
+	static float speed[3] = {0.0f,0.0f,0.0f};
+	static float posit[3] = {0.0f,0.0f,0.0f};
+	static int lastTime;
+
+	while (0){
+		//Data Update at very high hertz to maintain inertial guidance accuracy
+
+		//Button Check at 0.5Hz
+
+		//LED Check at 2hz
+
+		//Main printing at 1Hz
+
+
+	}
+
+
 	while (1)
 	{
 		float accel_data[3];
@@ -73,7 +112,7 @@ int main(void)
 
 		float mag_data[3];
 		int16_t mag_data_i16[3] = { 0 };			// array to store the x, y and z readings.
-		BSP_MAGNETO_GetXYZ(mag_data_i16);		// read accelerometer
+		BSP_MAGNETO_GetXYZ(mag_data_i16);		// read magnetometer
 		// the function above returns 16 bit integers which are 100 * acceleration_in_m/s2. Converting to float to print the actual acceleration.
 		mag_data[0] = (float)mag_data_i16[0] / 1.0f;//remeber to change the divisor to the correct value
 		mag_data[1] = (float)mag_data_i16[1] / 1.0f;
@@ -93,14 +132,17 @@ int main(void)
 		float pressure_data;
 		pressure_data = BSP_PSENSOR_ReadPressure();			// read temperature sensor
 
-		
-		printf("Pressure: %f; Temp: %f\n", pressure_data, temp_data);
+		float hum_data;
+		hum_data = BSP_HSENSOR_ReadHumidity();
 
-		printf("Gyro X: %f, Y: %f, Z: %f\n", gyro_data[0], gyro_data[1], gyro_data[2]);
+		
+		//printf("Pressure: %f; Temp: %f;Humidity:%f \n ", pressure_data, temp_data, hum_data);
+
+		//printf("Gyro X: %f, Y: %f, Z: %f\n", gyro_data[0], gyro_data[1], gyro_data[2]);
 
 		printf("Hx : %f, Hy : %f, Hz : %f\n", mag_data[0], mag_data[1], mag_data[2]);
 
-		printf("Accel X : %f; Accel Y : %f; Accel Z : %f\n", accel_data[0], accel_data[1], accel_data[2]);
+		//printf("Accel X : %f; Accel Y : %f; Accel Z : %f\n", accel_data[0], accel_data[1], accel_data[2]);
 
 		HAL_Delay(1000);	// read once a ~second.
 
@@ -132,5 +174,32 @@ static void MX_GPIO_Init(void)
 
 	// Enable NVIC EXTI line 13
 	HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
-
 }
+
+
+static void UART1_Init(void) {
+/* Pin configuration for UART. BSP_COM_Init() can do this automatically */
+__HAL_RCC_GPIOB_CLK_ENABLE();
+GPIO_InitTypeDef GPIO_InitStruct = {0};
+GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
+GPIO_InitStruct.Pin = GPIO_PIN_7|GPIO_PIN_6;
+GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+GPIO_InitStruct.Pull = GPIO_NOPULL;
+GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+/* Configuring UART1 */
+huart1.Instance = USART1;
+huart1.Init.BaudRate = 115200;
+huart1.Init.WordLength = UART_WORDLENGTH_8B;
+huart1.Init.StopBits = UART_STOPBITS_1;
+huart1.Init.Parity = UART_PARITY_NONE;
+huart1.Init.Mode = UART_MODE_TX_RX;
+huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+if(HAL_UART_Init(&huart1) != HAL_OK) {
+   while(1);
+}
+}
+
