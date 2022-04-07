@@ -115,6 +115,7 @@ int main(void)
 	const int PWM[4] = {0,1,1,1};
 	volatile unsigned int *p;	// pointer declaration
 	volatile unsigned int *q;	// pointer declaration
+	static char trigger[50];
 
 
 	float accel_data[3];
@@ -150,6 +151,11 @@ int main(void)
 			accel_data[0] = (float)accel_data_i16[0] / 981.0f;//change to m/s^2
 			accel_data[1] = (float)accel_data_i16[1] / 981.0f;
 			accel_data[2] = (float)accel_data_i16[2] / 981.0f;
+			if(accel_data[0]*accel_data[0] + accel_data[1]*accel_data[1] +accel_data[2]*accel_data[2] > 900){
+				//G-Limit = 30
+				warning = true;
+				strcpy(trigger,"G Limit Exceeded");
+			}
 
 
 			int16_t mag_data_i16[3] = { 0 };			// array to store the x, y and z readings.
@@ -158,8 +164,18 @@ int main(void)
 			mag_data[0] = (float)mag_data_i16[0] / 1000.0f;//remeber to change the divisor to the correct value
 			mag_data[1] = (float)mag_data_i16[1] / 1000.0f;
 			mag_data[2] = (float)mag_data_i16[2] / 1000.0f;
+			if(mag_data[0]*mag_data[0] + mag_data[1]*mag_data[1] +mag_data[2]*mag_data[2] > 100){
+				//G-Limit = 30
+				warning = true;
+				strcpy(trigger,"Solar Flare(Magnetometer)");
+			}
+
 
 			temp_data = BSP_TSENSOR_ReadTemp();			// read temperature sensor
+			if(temp_data>100){
+				warning = true;
+				strcpy(trigger,"Overheat");
+			}
 
 			int16_t gyro_data_i16[3] = { 0 };			// array to store the x, y and z readings.
 			BSP_GYRO_GetXYZ(gyro_data_i16);		// read accelerometer
@@ -168,9 +184,24 @@ int main(void)
 			gyro_data[1] = (float)gyro_data_i16[1] / 16.0f;
 			gyro_data[2] = (float)gyro_data_i16[2] / 16.0f;
 
-			pressure_data = BSP_PSENSOR_ReadPressure()*100.0f;			// read temperature sensor
+			if(gyro_data[0]*gyro_data[0] + gyro_data[1]*gyro_data[1] +gyro_data[2]*gyro_data[2] > 100){
+				//spin limit??
+				warning = true;
+				strcpy(trigger,"Spinning...");
+			}
+
+			pressure_data = BSP_PSENSOR_ReadPressure()*100.0f;// read temperature sensor
+			if(pressure_data<1000){
+				warning = true;
+				strcpy(trigger,"Air Leak");
+			}
 
 			hum_data = BSP_HSENSOR_ReadHumidity();
+			if(hum_data<10){
+				warning = true;
+				strcpy(trigger,"Moisture Leak");
+			}
+
 		}
 
 		//Button Check at 0.5Hz
@@ -178,6 +209,7 @@ int main(void)
 		if (HAL_GetTick()%2000 == 0){
 			if (singleClick){
 				warning = false;
+				printf("reset warning");
 			}else if(doubleClick){
 				mode++;
 				mode=mode%3;
@@ -202,9 +234,12 @@ int main(void)
 		}
 
 		//LED blink at 1hz
+
+		//Main printing at 1Hz
 		if (HAL_GetTick()%1000 == 0){
 			if(warning){
-				switch(warning){
+				printf("%s",trigger);
+				switch(mode){
 					case 0:
 						printf("Stationary mode:WARNING\n");
 						break;
@@ -216,6 +251,7 @@ int main(void)
 						break;
 				}
 
+
 			}else{
 				printf("Pressure: %f; Temp: %f;Humidity:%f \n ", pressure_data, temp_data, hum_data);
 
@@ -224,61 +260,14 @@ int main(void)
 				printf("Hx : %f, Hy : %f, Hz : %f\n", mag_data[0], mag_data[1], mag_data[2]);
 
 				printf("Accel X : %f; Accel Y : %f; Accel Z : %f\n", accel_data[0], accel_data[1], accel_data[2]);
+
+				printf("Temp:%f\n Humidity:%f\n",temp_data,hum_data);
 			}
 		}
 
 
-		//Main printing at 1Hz
 
 
-	}
-
-
-	while (0)
-	{
-		float accel_data[3];
-		int16_t accel_data_i16[3] = { 0 };			// array to store the x, y and z readings.
-		BSP_ACCELERO_AccGetXYZ(accel_data_i16);		// read accelerometer
-		// the function above returns 16 bit integers which are 100 * acceleration_in_m/s2. Converting to float to print the actual acceleration.
-		accel_data[0] = (float)accel_data_i16[0] / 100.0f;
-		accel_data[1] = (float)accel_data_i16[1] / 100.0f;
-		accel_data[2] = (float)accel_data_i16[2] / 100.0f;
-
-		float mag_data[3];
-		int16_t mag_data_i16[3] = { 0 };			// array to store the x, y and z readings.
-		BSP_MAGNETO_GetXYZ(mag_data_i16);		// read magnetometer
-		// the function above returns 16 bit integers which are 100 * acceleration_in_m/s2. Converting to float to print the actual acceleration.
-		mag_data[0] = (float)mag_data_i16[0] / 1.0f;//remeber to change the divisor to the correct value
-		mag_data[1] = (float)mag_data_i16[1] / 1.0f;
-		mag_data[2] = (float)mag_data_i16[2] / 1.0f;		
-
-		float temp_data;
-		temp_data = BSP_TSENSOR_ReadTemp();			// read temperature sensor
-
-		float gyro_data[3];
-		int16_t gyro_data_i16[3] = { 0 };			// array to store the x, y and z readings.
-		BSP_GYRO_GetXYZ(gyro_data_i16);		// read accelerometer
-		// the function above returns 16 bit integers which are 100 * acceleration_in_m/s2. Converting to float to print the actual acceleration.
-		gyro_data[0] = (float)gyro_data_i16[0] / 16.0f;
-		gyro_data[1] = (float)gyro_data_i16[1] / 16.0f;
-		gyro_data[2] = (float)gyro_data_i16[2] / 16.0f;
-
-		float pressure_data;
-		pressure_data = BSP_PSENSOR_ReadPressure();			// read temperature sensor
-
-		float hum_data;
-		hum_data = BSP_HSENSOR_ReadHumidity();
-
-		
-		//printf("Pressure: %f; Temp: %f;Humidity:%f \n ", pressure_data, temp_data, hum_data);
-
-		//printf("Gyro X: %f, Y: %f, Z: %f\n", gyro_data[0], gyro_data[1], gyro_data[2]);
-
-		printf("Hx : %f, Hy : %f, Hz : %f\n", mag_data[0], mag_data[1], mag_data[2]);
-
-		//printf("Accel X : %f; Accel Y : %f; Accel Z : %f\n", accel_data[0], accel_data[1], accel_data[2]);
-
-		HAL_Delay(1000);	// read once a ~second.
 
 	}
 
