@@ -19,6 +19,28 @@
 #include "stdio.h"
 #include "stdbool.h"
 
+
+	// Addresses of AHB2 Registers
+	#define RCC_AHB2RSTR	0x4002102C
+	#define RCC_AHB2ENR		0x4002104C
+	#define RCC_AHB2SMENR	0x4002106C
+
+	// Addresses of GPIO Registers
+	#define GPIOB_MODER 	0x48000400
+	#define GPIOB_OTYPER	0x48000404
+	#define GPIOB_OSPEEDR	0x48000408
+	#define GPIOB_PUPDR		0x4800040C
+	#define GPIOB_IDR		0x48000410
+	#define GPIOB_ODR		0x48000414
+	#define GPIOB_BSRR		0x48000418
+	#define GPIOB_LCKR		0x4800041C
+	#define GPIOB_AFRL		0x48000420
+	#define GPIOB_AFRH		0x48000424
+	#define GPIOB_BRR		0x48000428
+	#define GPIOB_ASCR		0x4800042C
+
+	#define LEDPIN  	(1 << 14)
+
 extern void initialise_monitor_handles(void);	// for semi-hosting support (printf)
 
 static void MX_GPIO_Init(void);
@@ -54,8 +76,6 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) // single/doubleclick handler
 
 int main(void)
 {
-
-
 	initialise_monitor_handles(); // for semi-hosting support (printf)
 
 	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
@@ -77,22 +97,136 @@ int main(void)
 
 	UART1_Init();
 
-	HAL_InitTick(2);//not to sure what the pirority to put this.
+	//HAL_InitTick(2);//not to sure what the pirority to put this.
 
-	HAL_SetTickFreq(100);//i think....
+	//HAL_SetTickFreq(10);//i think....
 
 	static bool warning = false;
 	static int mode = 0;//0:stationary, 1:Launch,2:return
 	static float speed[3] = {0.0f,0.0f,0.0f};
 	static float posit[3] = {0.0f,0.0f,0.0f};
+	static float angSpeed[3] = {0.0f,0.0f,0.0f};//mag,hori,vertical
+	static float angPosit[3] = {0.0f,0.0f,0.0f};
 	static int lastTime;
+	lastTime = HAL_GetTick();
+	static bool LEDon=true;// 0:off 1:on
+	static bool LEDmode=false; //0:25% 1:75%
+	static int LEDiter = 0;// for PWM
+	const int PWM[4] = {0,1,1,1};
+	volatile unsigned int *p;	// pointer declaration
+	volatile unsigned int *q;	// pointer declaration
 
-	while (0){
+
+	float accel_data[3];
+	float mag_data[3];
+	float temp_data;
+	float gyro_data[3];
+	float pressure_data;
+	float hum_data;
+
+
+	//determine true magnetic North
+	printf("Finding True magnetic North\n Please Do not Move the Board\n");
+	HAL_Delay(1000);
+	int16_t mag_data_i16[3] = { 0 };			// array to store the x, y and z readings.
+	BSP_MAGNETO_GetXYZ(mag_data_i16);		// read magnetometer
+	// the function above returns 16 bit integers which are 100 * acceleration_in_m/s2. Converting to float to print the actual acceleration.
+	mag_data[0] = (float)mag_data_i16[0] / 1.0f;//remeber to change the divisor to the correct value
+	mag_data[1] = (float)mag_data_i16[1] / 1.0f;
+	mag_data[2] = (float)mag_data_i16[2] / 1.0f;
+
+
+
+
+	while (1){//change to 1 to activate
 		//Data Update at very high hertz to maintain inertial guidance accuracy
+		//TODO: find a way to account for changes to speed WRT Direction
+
+		if(HAL_GetTick()%5 == 0){
+
+			int16_t accel_data_i16[3] = { 0 };			// array to store the x, y and z readings.
+			BSP_ACCELERO_AccGetXYZ(accel_data_i16);		// read accelerometer
+			// the function above returns 16 bit integers which are 100 * acceleration_in_m/s2. Converting to float to print the actual acceleration.
+			accel_data[0] = (float)accel_data_i16[0] / 981.0f;//change to m/s^2
+			accel_data[1] = (float)accel_data_i16[1] / 981.0f;
+			accel_data[2] = (float)accel_data_i16[2] / 981.0f;
+
+
+			int16_t mag_data_i16[3] = { 0 };			// array to store the x, y and z readings.
+			BSP_MAGNETO_GetXYZ(mag_data_i16);		// read magnetometer
+			// the function above returns 16 bit integers which are 100 * acceleration_in_m/s2. Converting to float to print the actual acceleration.
+			mag_data[0] = (float)mag_data_i16[0] / 1000.0f;//remeber to change the divisor to the correct value
+			mag_data[1] = (float)mag_data_i16[1] / 1000.0f;
+			mag_data[2] = (float)mag_data_i16[2] / 1000.0f;
+
+			temp_data = BSP_TSENSOR_ReadTemp();			// read temperature sensor
+
+			int16_t gyro_data_i16[3] = { 0 };			// array to store the x, y and z readings.
+			BSP_GYRO_GetXYZ(gyro_data_i16);		// read accelerometer
+			// the function above returns 16 bit integers which are 100 * acceleration_in_m/s2. Converting to float to print the actual acceleration.
+			gyro_data[0] = (float)gyro_data_i16[0] / 16.0f;
+			gyro_data[1] = (float)gyro_data_i16[1] / 16.0f;
+			gyro_data[2] = (float)gyro_data_i16[2] / 16.0f;
+
+			pressure_data = BSP_PSENSOR_ReadPressure()*100.0f;			// read temperature sensor
+
+			hum_data = BSP_HSENSOR_ReadHumidity();
+		}
 
 		//Button Check at 0.5Hz
 
-		//LED Check at 2hz
+		if (HAL_GetTick()%2000 == 0){
+			if (singleClick){
+				warning = false;
+			}else if(doubleClick){
+				mode++;
+				mode=mode%3;
+			}
+		}
+		//LED PWM at 1Mhz
+		if(LEDon && HAL_GetTick()%100 == 0){
+			LEDiter++;
+			LEDiter= LEDiter%4;
+			p = (unsigned int *)GPIOB_BSRR;
+			q = (unsigned int *)GPIOB_ODR;
+			if((mode == 1 && PWM[LEDiter]) || ~PWM[LEDiter]){
+				*p |= (1 << 14);	// set BSRR's bit[14], set bit, to turn LD2 on
+
+			}else if (mode == 2){
+				*p &= ~((1 << 30) | (1 << 14));	// clear GPIO BSRR's bit[30] and bit[14]
+				*p |= (1 << 30);	// set BSRR's bit[30], reset bit, to turn LD2 off
+			}
+
+
+
+		}
+
+		//LED blink at 1hz
+		if (HAL_GetTick()%1000 == 0){
+			if(warning){
+				switch(warning){
+					case 0:
+						printf("Stationary mode:WARNING\n");
+						break;
+					case 1:
+						printf("Launch mode:WARNING\n");
+						break;
+					case 2:
+						printf("Return mode: WARNING\n");
+						break;
+				}
+
+			}else{
+				printf("Pressure: %f; Temp: %f;Humidity:%f \n ", pressure_data, temp_data, hum_data);
+
+				printf("Gyro X: %f, Y: %f, Z: %f\n", gyro_data[0], gyro_data[1], gyro_data[2]);
+
+				printf("Hx : %f, Hy : %f, Hz : %f\n", mag_data[0], mag_data[1], mag_data[2]);
+
+				printf("Accel X : %f; Accel Y : %f; Accel Z : %f\n", accel_data[0], accel_data[1], accel_data[2]);
+			}
+		}
+
 
 		//Main printing at 1Hz
 
@@ -100,7 +234,7 @@ int main(void)
 	}
 
 
-	while (1)
+	while (0)
 	{
 		float accel_data[3];
 		int16_t accel_data_i16[3] = { 0 };			// array to store the x, y and z readings.
