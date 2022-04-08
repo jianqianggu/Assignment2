@@ -64,7 +64,7 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) // single/doubleclick handler
 		printf("Single Click. \n");
 		printf("Gap:%d,time:%d\n",gap,time);
 		singleClick = true;
-		if (gap<5){
+		if (gap<1000){
 			printf("\t Double Click\n");
 			singleClick = false;
 			doubleClick = true;
@@ -113,9 +113,15 @@ int main(void)
 	static bool LEDmode=false; //0:25% 1:75%
 	static int LEDiter = 0;// for PWM
 	const int PWM[4] = {0,1,1,1};
-	volatile unsigned int *p;	// pointer declaration
-	volatile unsigned int *q;	// pointer declaration
+	volatile unsigned int *p = (unsigned int *)GPIOB_BSRR;
 	static char trigger[50];
+	static int updateCount = 0;
+	static int buttonCount = 0;
+	static int printCount = 0;
+	static int blinkCount = 0;
+	static int PWMCount = 0;
+	static int warningCount = 0;
+
 
 
 	float accel_data[3];
@@ -128,7 +134,7 @@ int main(void)
 
 	//determine true magnetic North
 	printf("Finding True magnetic North\n Please Do not Move the Board\n");
-	HAL_Delay(1000);
+	//HAL_Delay(1000);
 	int16_t mag_data_i16[3] = { 0 };			// array to store the x, y and z readings.
 	BSP_MAGNETO_GetXYZ(mag_data_i16);		// read magnetometer
 	// the function above returns 16 bit integers which are 100 * acceleration_in_m/s2. Converting to float to print the actual acceleration.
@@ -143,7 +149,9 @@ int main(void)
 		//Data Update at very high hertz to maintain inertial guidance accuracy
 		//TODO: find a way to account for changes to speed WRT Direction
 
-		if(HAL_GetTick()%5 == 0){
+		if(HAL_GetTick()-updateCount > 50){
+
+			updateCount = HAL_GetTick();
 
 			int16_t accel_data_i16[3] = { 0 };			// array to store the x, y and z readings.
 			BSP_ACCELERO_AccGetXYZ(accel_data_i16);		// read accelerometer
@@ -180,11 +188,11 @@ int main(void)
 			int16_t gyro_data_i16[3] = { 0 };			// array to store the x, y and z readings.
 			BSP_GYRO_GetXYZ(gyro_data_i16);		// read accelerometer
 			// the function above returns 16 bit integers which are 100 * acceleration_in_m/s2. Converting to float to print the actual acceleration.
-			gyro_data[0] = (float)gyro_data_i16[0] / 16.0f;
-			gyro_data[1] = (float)gyro_data_i16[1] / 16.0f;
-			gyro_data[2] = (float)gyro_data_i16[2] / 16.0f;
+			gyro_data[0] = ((float)gyro_data_i16[0]+630.0f) / 1000.0f;
+			gyro_data[1] = ((float)gyro_data_i16[1]+280.0f) / 1000.0f;
+			gyro_data[2] = ((float)gyro_data_i16[2]+140.0f) / 1000.0f;
 
-			if(gyro_data[0]*gyro_data[0] + gyro_data[1]*gyro_data[1] +gyro_data[2]*gyro_data[2] > 100){
+			if(gyro_data[0]*gyro_data[0] + gyro_data[1]*gyro_data[1] +gyro_data[2]*gyro_data[2] > 10000){
 				//spin limit??
 				warning = true;
 				strcpy(trigger,"Spinning...");
@@ -197,30 +205,35 @@ int main(void)
 			}
 
 			hum_data = BSP_HSENSOR_ReadHumidity();
-			if(hum_data<10){
+			if(hum_data>80){
 				warning = true;
-				strcpy(trigger,"Moisture Leak");
+				strcpy(trigger,"Stop breathing on me, Yuck!");
 			}
 
 		}
 
 		//Button Check at 0.5Hz
 
-		if (HAL_GetTick()%2000 == 0){
+		if (HAL_GetTick()-buttonCount > 2000){
+			buttonCount = HAL_GetTick();
 			if (singleClick){
 				warning = false;
-				printf("reset warning");
+				printf("reset warning\n");
+				singleClick = false;
 			}else if(doubleClick){
+				//TODO: nextmode CountDown
 				mode++;
 				mode=mode%3;
+				doubleClick = false;
+				printf("nextmode\n");
 			}
 		}
 		//LED PWM at 1Mhz
-		if(LEDon && HAL_GetTick()%100 == 0){
+		if(LEDon && HAL_GetTick()-PWMCount >100){
+			PWMCount = HAL_GetTick();
 			LEDiter++;
 			LEDiter= LEDiter%4;
 			p = (unsigned int *)GPIOB_BSRR;
-			q = (unsigned int *)GPIOB_ODR;
 			if((mode == 1 && PWM[LEDiter]) || ~PWM[LEDiter]){
 				*p |= (1 << 14);	// set BSRR's bit[14], set bit, to turn LD2 on
 
@@ -232,13 +245,25 @@ int main(void)
 
 
 		}
+		//Warning blink at 2hz
+		if(warning && HAL_GetTick()-warningCount >500){
+			warningCount = HAL_GetTick();
+			LEDon = ~LEDon;
+
+		}
 
 		//LED blink at 1hz
+		if(mode !=0 && HAL_GetTick()-blinkCount >1000){
+			blinkCount = HAL_GetTick();
+			LEDon = ~LEDon;
+
+		}
 
 		//Main printing at 1Hz
-		if (HAL_GetTick()%1000 == 0){
+		if (HAL_GetTick() -printCount > 1000){
+			printCount = HAL_GetTick();
 			if(warning){
-				printf("%s",trigger);
+				printf("%s\n",trigger);
 				switch(mode){
 					case 0:
 						printf("Stationary mode:WARNING\n");
