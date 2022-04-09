@@ -121,6 +121,7 @@ int main(void)
 	static int blinkCount = 0;
 	static int PWMCount = 0;
 	static int warningCount = 0;
+	static int countDown=-1;
 
 
 
@@ -222,22 +223,21 @@ int main(void)
 				singleClick = false;
 			}else if(doubleClick){
 				//TODO: nextmode CountDown
-				mode++;
-				mode=mode%3;
+				countDown = 10;
 				doubleClick = false;
 				printf("nextmode\n");
 			}
 		}
 		//LED PWM at 1Mhz
-		if(LEDon && HAL_GetTick()-PWMCount >100){
+		if(LEDon){
 			PWMCount = HAL_GetTick();
 			LEDiter++;
 			LEDiter= LEDiter%4;
 			p = (unsigned int *)GPIOB_BSRR;
-			if((mode == 1 && PWM[LEDiter]) || ~PWM[LEDiter]){
+			if((mode == 2 && PWM[LEDiter] == 1) || mode == 1 && PWM[LEDiter] == 0){
 				*p |= (1 << 14);	// set BSRR's bit[14], set bit, to turn LD2 on
 
-			}else if (mode == 2){
+			}else{
 				*p &= ~((1 << 30) | (1 << 14));	// clear GPIO BSRR's bit[30] and bit[14]
 				*p |= (1 << 30);	// set BSRR's bit[30], reset bit, to turn LD2 off
 			}
@@ -248,20 +248,36 @@ int main(void)
 		//Warning blink at 2hz
 		if(warning && HAL_GetTick()-warningCount >500){
 			warningCount = HAL_GetTick();
-			LEDon = ~LEDon;
+			LEDon = !LEDon;
+			printf("warning blink\n");
 
 		}
 
 		//LED blink at 1hz
 		if(mode !=0 && HAL_GetTick()-blinkCount >1000){
+			printf("blink\n");
 			blinkCount = HAL_GetTick();
-			LEDon = ~LEDon;
+			LEDon = !LEDon;
 
 		}
 
-		//Main printing at 1Hz
+		//Main printing at 1Hz+countdown handler
 		if (HAL_GetTick() -printCount > 1000){
 			printCount = HAL_GetTick();
+			if(countDown >0){
+				printf("Mode Switch in %d seconds\n",countDown);
+				countDown--;
+				if(warning){
+					printf("warning, abort mode switch \n");
+					countDown = -1;
+				}
+				if(countDown == 0){
+					mode++;
+					mode = mode %3;
+				}
+
+
+			}
 			if(warning){
 				printf("%s\n",trigger);
 				switch(mode){
@@ -278,15 +294,15 @@ int main(void)
 
 
 			}else{
+				//change this to take into account mode
 				printf("Pressure: %f; Temp: %f;Humidity:%f \n ", pressure_data, temp_data, hum_data);
+				if(mode >0){
+					printf("Gyro X: %f, Y: %f, Z: %f\n", gyro_data[0], gyro_data[1], gyro_data[2]);
 
-				printf("Gyro X: %f, Y: %f, Z: %f\n", gyro_data[0], gyro_data[1], gyro_data[2]);
+					printf("Hx : %f, Hy : %f, Hz : %f\n", mag_data[0], mag_data[1], mag_data[2]);
 
-				printf("Hx : %f, Hy : %f, Hz : %f\n", mag_data[0], mag_data[1], mag_data[2]);
-
-				printf("Accel X : %f; Accel Y : %f; Accel Z : %f\n", accel_data[0], accel_data[1], accel_data[2]);
-
-				printf("Temp:%f\n Humidity:%f\n",temp_data,hum_data);
+					printf("Accel X : %f; Accel Y : %f; Accel Z : %f\n", accel_data[0], accel_data[1], accel_data[2]);
+				}
 			}
 		}
 
