@@ -47,7 +47,7 @@ static void MX_GPIO_Init(void);
 void SystemClock_Config(void);
 static void UART1_Init(void);
 UART_HandleTypeDef huart1;
-
+char message_print[25];
 
 volatile bool singleClick = false;
 volatile bool doubleClick = false;
@@ -61,14 +61,18 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) // single/doubleclick handler
 		gap=-(time-HAL_GetTick());
 		time=HAL_GetTick();
 		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
-		printf("Single Click. \n");
-		printf("Gap:%d,time:%d\n",gap,time);
+		sprintf(message_print,"Single Click. \n");
+	  	HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
+
+	  	printf("Gap:%d,time:%d\n",gap,time);
 		singleClick = true;
 		if (gap<1000){
-			printf("\t Double Click\n");
+			sprintf(message_print,"\t Double Click\n");
+		  	HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
+
 			singleClick = false;
 			doubleClick = true;
-			time=-500;
+			time=-1000;
 		}
 
 	}
@@ -103,14 +107,13 @@ int main(void)
 
 	static bool warning = false;
 	static int mode = 0;//0:stationary, 1:Launch,2:return
-	static float speed[3] = {0.0f,0.0f,0.0f};
-	static float posit[3] = {0.0f,0.0f,0.0f};
-	static float angSpeed[3] = {0.0f,0.0f,0.0f};//mag,hori,vertical
-	static float angPosit[3] = {0.0f,0.0f,0.0f};
+//	static float speed[3] = {0.0f,0.0f,0.0f};
+//	static float posit[3] = {0.0f,0.0f,0.0f};
+//	static float angSpeed[3] = {0.0f,0.0f,0.0f};//mag,hori,vertical
+//	static float angPosit[3] = {0.0f,0.0f,0.0f};
 	static int lastTime;
 	lastTime = HAL_GetTick();
 	static bool LEDon=true;// 0:off 1:on
-	static bool LEDmode=false; //0:25% 1:75%
 	static int LEDiter = 0;// for PWM
 	const int PWM[4] = {0,1,1,1};
 	volatile unsigned int *p = (unsigned int *)GPIOB_BSRR;
@@ -133,6 +136,7 @@ int main(void)
 	float hum_data;
 
 
+/*
 	//determine true magnetic North
 	printf("Finding True magnetic North\n Please Do not Move the Board\n");
 	//HAL_Delay(1000);
@@ -142,11 +146,15 @@ int main(void)
 	mag_data[0] = (float)mag_data_i16[0] / 1.0f;//remeber to change the divisor to the correct value
 	mag_data[1] = (float)mag_data_i16[1] / 1.0f;
 	mag_data[2] = (float)mag_data_i16[2] / 1.0f;
+*/
 
 
 
 
 	while (1){//change to 1 to activate
+
+		//debug
+		//printf("MEssage : %s\n",message_print);
 		//Data Update at very high hertz to maintain inertial guidance accuracy
 		//TODO: find a way to account for changes to speed WRT Direction
 
@@ -208,7 +216,7 @@ int main(void)
 			hum_data = BSP_HSENSOR_ReadHumidity();
 			if(hum_data>80){
 				warning = true;
-				strcpy(trigger,"Stop breathing on me, Yuck!");
+				strcpy(trigger,"Corrosion Risk, too humid");
 			}
 
 		}
@@ -219,13 +227,15 @@ int main(void)
 			buttonCount = HAL_GetTick();
 			if (singleClick){
 				warning = false;
-				printf("reset warning\n");
+				sprintf(message_print,"reset warning\n");
+				HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
 				singleClick = false;
 			}else if(doubleClick){
 				//TODO: nextmode CountDown
 				countDown = 10;
 				doubleClick = false;
-				printf("nextmode\n");
+				sprintf(message_print,"nextmode\n");
+				HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
 			}
 		}
 		//LED PWM at 1Mhz
@@ -249,15 +259,23 @@ int main(void)
 		if(warning && HAL_GetTick()-warningCount >500){
 			warningCount = HAL_GetTick();
 			LEDon = !LEDon;
-			printf("warning blink\n");
+			//printf("warning blink\n");
+			//HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
+			p = (unsigned int *)GPIOB_BSRR;
+			*p &= ~((1 << 30) | (1 << 14));	// clear GPIO BSRR's bit[30] and bit[14]
+			*p |= (1 << 30);	// set BSRR's bit[30], reset bit, to turn LD2 off
 
 		}
 
 		//LED blink at 1hz
 		if(mode !=0 && HAL_GetTick()-blinkCount >1000){
-			printf("blink\n");
+			//printf("blink\n");
+			//HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
 			blinkCount = HAL_GetTick();
 			LEDon = !LEDon;
+			p = (unsigned int *)GPIOB_BSRR;
+			*p &= ~((1 << 30) | (1 << 14));	// clear GPIO BSRR's bit[30] and bit[14]
+			*p |= (1 << 30);	// set BSRR's bit[30], reset bit, to turn LD2 off
 
 		}
 
@@ -265,43 +283,71 @@ int main(void)
 		if (HAL_GetTick() -printCount > 1000){
 			printCount = HAL_GetTick();
 			if(countDown >0){
-				printf("Mode Switch in %d seconds\n",countDown);
+				sprintf(message_print,"Mode Switch in %d seconds\n",countDown);
+				HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
 				countDown--;
 				if(warning){
-					printf("warning, abort mode switch \n");
+					sprintf(message_print,"warning, abort mode switch \n");
+					HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
 					countDown = -1;
 				}
 				if(countDown == 0){
 					mode++;
 					mode = mode %3;
+					switch(mode){
+						case 0:
+							sprintf(message_print,"Stationary mode\n");
+							HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
+							break;
+						case 1:
+
+							sprintf(message_print,"Launch mode\n");
+							HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
+							break;
+						case 2:
+							sprintf(message_print,"Return mode\n");
+							HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
+
+							break;
+					}
 				}
 
 
 			}
 			if(warning){
-				printf("%s\n",trigger);
+				sprintf(message_print,"%s\n",trigger);
+				HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
 				switch(mode){
 					case 0:
-						printf("Stationary mode:WARNING\n");
+						sprintf(message_print,"Stationary mode:WARNING\n");
+						HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
 						break;
 					case 1:
-						printf("Launch mode:WARNING\n");
+
+						sprintf(message_print,"Launch mode:WARNING\n");
+						HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
 						break;
 					case 2:
-						printf("Return mode: WARNING\n");
+						sprintf(message_print,"Return mode: WARNING\n");
+						HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
+
 						break;
 				}
 
 
 			}else{
 				//change this to take into account mode
-				printf("Pressure: %f; Temp: %f;Humidity:%f \n ", pressure_data, temp_data, hum_data);
+				sprintf(message_print,"Pressure: %f; Temp: %f;Humidity:%f \n ", pressure_data, temp_data, hum_data);
+				HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
 				if(mode >0){
-					printf("Gyro X: %f, Y: %f, Z: %f\n", gyro_data[0], gyro_data[1], gyro_data[2]);
+					sprintf(message_print,"Gyro X: %f, Y: %f, Z: %f\n", gyro_data[0], gyro_data[1], gyro_data[2]);
+					HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
 
-					printf("Hx : %f, Hy : %f, Hz : %f\n", mag_data[0], mag_data[1], mag_data[2]);
+					sprintf(message_print,"Hx : %f, Hy : %f, Hz : %f\n", mag_data[0], mag_data[1], mag_data[2]);
+					HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
 
-					printf("Accel X : %f; Accel Y : %f; Accel Z : %f\n", accel_data[0], accel_data[1], accel_data[2]);
+					sprintf(message_print,"Accel X : %f; Accel Y : %f; Accel Z : %f\n", accel_data[0], accel_data[1], accel_data[2]);
+					HAL_UART_Transmit(&huart1, (uint8_t*)message_print, strlen(message_print),0xFFFF);
 				}
 			}
 		}
